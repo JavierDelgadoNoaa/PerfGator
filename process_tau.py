@@ -176,7 +176,8 @@ def read_tau_output(filename="profile.txt", node2roleDict=None,
         e.g. { "exclusive_percent": 1.0, "num_calls":100 } ignores all subroutines
         that took less than 1% of the time in the subroutine itself (excluding 
         children).
-        DEFAULT: {"exclusive_percent": 1.0 }
+        DEFAULT: {"exclusive_percent": 1.0 } (NOTE: That if called from 
+            gather_nmmb_tau_stats() a different default is used)
     :param: numSubrs: Number of subroutines in the profile to include. This 
                       includes number in ``subrsOfInterest'', if passed in.
     :param sortMetric: The metric to use when sorting subroutines to determine
@@ -184,8 +185,13 @@ def read_tau_output(filename="profile.txt", node2roleDict=None,
         #TODO? default to paramOfInterest if unspecified?
     :param rolesOfInterest: If set, skip any nodes whose node2roleDict value
         does not match any item in this list
-    :return: list of TauNodeContextThread objects populated with all 
-             NodeCtxThreadItem objects that satisfy passed in limitations
+    :return nct_list,subr2nct: 
+        nct_list is the list of TauNodeContextThread objects populated with all 
+             NodeCtxThreadItem objects that satisfy passed in limitations.
+        subr2nct is a dictionary that maps subroutines to the N/C/Ts that have 
+            them in their subr_list (i.e. the N/C/T's for which the subroutine
+            passed all thresholds and was either in subroutines_of_interest or
+            one of the Top N resource consumers
     """
     ##
     # Variables
@@ -396,7 +402,7 @@ def read_tau_output(filename="profile.txt", node2roleDict=None,
             #import pdb ; pdb.set_trace()
             perc = 100. * (_total_exclusive_tally / nct.total_time)
             #if perc > 99.5:
-            if perc > 99.9 # and  len(subrsOfInterest) == numSubsInListFound:
+            if perc > 99.9: # and  len(subrsOfInterest) == numSubsInListFound:
                 skip_until_next_nct = True
                 numSubsInListFound = 0
         except UnknownParameterException:
@@ -451,8 +457,7 @@ def read_nmmb_tau_output(filename="profile.txt", configFile="configure_file_01",
     :param sortMetric: The metric to use when sorting subroutines to determine
                        which ones to include. Only used if numSubrs is passed in
     :param rolesOfInterest: See documentation for read_tau_output()                
-    :return: list of TauNodeContextThread objects populated with all 
-             NodeCtxThreadItem objects that satisfy passed in limitations
+    :return nct_list, subr2values: The same output as read_tau_output()
     """
     def what_is_my_role(taskid):
         """
@@ -490,7 +495,7 @@ def read_nmmb_tau_output(filename="profile.txt", configFile="configure_file_01",
 
  
 
-def make_figures(exptProfiles):
+def make_figures(exptProfiles, figconf):
     """
     :param exptProfiles: Dictionary : results[expt][role][operation][subroutine]
     """
@@ -500,35 +505,37 @@ def make_figures(exptProfiles):
     #io_slaves = [t for t in io_tasks if t.role == "write_slave"]
     
     
-    ## Create plots of compute tasks
-    # Stacked bar chart
-    plt.figure()
-    startY = np.zeros(len(exptProfiles))
-    xLocs = np.arange(len(exptProfiles))
-    bar_width = 0.5 # TODO config
-    #import pdb ; pdb.set_trace() 
-    color = []
-    # Get set of all subroutines from all experiments
-    ee = [ exptProfiles[x].keys() for x in exptProfiles.keys()]
-    subrs = set([i for i in itertools.chain(*ee)])
-    
-    for subr in subrs:
-        #subrs_of_interest[role]:
-        # Get values for all experiments for the current role/op/subr combo
-        # Extract value for each experiment. Note that not all experiments
-        # will have same subroutines
-        vals = []
-        for i,exptKey in enumerate(exptProfiles.keys()):
-            try:
-                vals.append(exptProfiles[exptKey][subr])
-            except KeyError:
-                vals.append(0) #subr not in this experiment
-        p = plt.bar(xLocs, vals, bar_width, bottom=startY)
-        color.append(p[0])
-        startY += vals
-    plt.xticks(xLocs, exptProfiles.keys())
-    plt.legend(color, subrs) # TODO use figconf setting
-    plt.savefig("stacked_compute.png") # TODO use figconf settings
+    if figconf["type"] == "stacked_bar":
+        # Stacked bar chart
+        plt.figure()
+        startY = np.zeros(len(exptProfiles))
+        xLocs = np.arange(len(exptProfiles))
+        bar_width = float(figconf["barchart_width"])
+        #import pdb ; pdb.set_trace() 
+        color = []
+        # Get set of all subroutines from all experiments
+        expt_subrs = [ exptProfiles[x].keys() for x in exptProfiles.keys()]
+        subrs = set([i for i in itertools.chain(*expt_subrs)])
+        
+        for subr in subrs:
+            #subrs_of_interest[role]:
+            # Get values for all experiments for the current role/op/subr combo
+            # Extract value for each experiment. Note that not all experiments
+            # will have same subroutines
+            vals = []
+            for i,exptKey in enumerate(exptProfiles.keys()):
+                try:
+                    vals.append(exptProfiles[exptKey][subr])
+                except KeyError:
+                    vals.append(0) #subr not in this experiment
+            p = plt.bar(xLocs, vals, bar_width, bottom=startY)
+            color.append(p[0])
+            startY += vals
+        plt.xticks(xLocs, exptProfiles.keys())
+        plt.legend(color, subrs) # TODO use figconf setting
+        plt.savefig(figconf["outfile"]) 
+    else:
+        raise Exception("Unknown figure type: {0}".format(figconf["type"]))
 
 def get_figconf_minmax_thresh(figconf):
     """
@@ -536,16 +543,14 @@ def get_figconf_minmax_thresh(figconf):
     strings in the format, ``paramA:N[, paramB:M], etc. return two dictionaries
     that map parameters to their min values
     """
-    minthresh = None ; maxthresh = None # default to None so defaults are used
+    minthresh = {} ; maxthresh = {}
     if "min_values" in figconf:
-        minthresh = {}
         for minstr in figconf["min_values"].split(","):
             toks = minstr.split(":")
             assert len(toks) == 2
             minthresh[toks[0].strip()] = float(toks[1])
     #else:
     if "max_values" in figconf:
-        maxthresh  = {}
         for maxstr in figconf["max_values"].split(","):
             toks = maxstr.split(":")
             assert len(toks) == 2
@@ -556,25 +561,14 @@ def gather_nmmb_tau_stats(expt, figconf):
 #operation, param):
     """
     Gather TAU statistics for an experiment
-    :return role_profiles: A dictionary mapping each role to a dict of results 
-                           from performing one or more operations on a set of
-                           profiles.
-        results[role][operation][subroutines_parameter][subroutine] = ...
-        e.g. if operations = [np.mean, np.median, np.mean]; 
-                roles=["compute","io"]
-                subroutines_parameter = ["exclusive_time", "exclusive_percent", "exclusive_time"]
-             result: role_profiles = { "compute": 
-                                        { "np.mean": 
-                                            { "exclusive_time" : [F1, F2, F3] 
-                                              "exclusive_percent": [F1, F2, F4] } 
-                                          "np.median":
-                                            { "exclusive_percent": [F1, F2, F3] }
-                                        } 
-                                       "io": {... # same structure as for "compute" # }
-                                      }
-                                     ; F1, F2, F3 are the values for running np.mean on all elements ...
-                                       strings corresponding to subr_name of the  NodeContextThreadItems
-    # TODO : update this documentation - things changed a lot after figconf paradigm
+    :return subr2values, subr2numCases:
+        subr2values is a dictionary mapping subroutine names to the value of 
+        performing the operation specified in figconf to them. The number
+        of subroutines in the dict is controlled by the settings in figconf.
+        subr2numCases maps the subroutine names to the number of N/C/T's that
+        contained this subroutine in its subr_list (i.e. it contains
+        subroutines that were either specified via config or that happen
+        to be the most resource intensive.
     """
     ## Settings
     global subrs_of_interest, num_subrs_to_include, subr_selection_sort_metric
@@ -594,21 +588,19 @@ def gather_nmmb_tau_stats(expt, figconf):
     expt_config = os.getcwd() + "/" + expt + "/" + "configure_file_01"
     # Determine profile file path. TODO : Move this to subr...allow different file names
     prof_path = None
+    dirname = os.path.join(os.getcwd(), figconf["tau_outs_topdir"], expt)
     for possible_file in ["profile.txt", "profile.txt.gz"]:
-        if os.path.exists(os.path.join(os.getcwd(), expt, possible_file)):
-            prof_path = os.path.join(os.getcwd(), expt, possible_file)
+        if os.path.exists(os.path.join(dirname, possible_file)):
+            prof_path = os.path.join(dirname, possible_file)
             break
     if not prof_path: 
         raise Exception("Did not find `profile.txt' or `profile.txt.gz' in {0}"
-                       .format(os.path.join(os.getcwd(),expt))) # TODO : have profile_outs_dir   
+                       .format(dirname))
 
     
-    ## ** TODO filter by role **
     ## Logic
     # Get list of NCTs whose subr_list satisfy the contstraints of
     # num_subrs_to_include, min/max values, etc.
-    # TODO? Reading the output multiple times (i.e. for each role)
-    # but that's not really necessary
     # TODO: DATABASE -> map canonical path and config obj to nct_list and subr2nct
     minthresh,maxthresh = get_figconf_minmax_thresh(figconf)
     nct_list,subr2nct = read_nmmb_tau_output(prof_path, expt_config, 
@@ -748,7 +740,7 @@ def main():
                 '''
                 expt_profiles[fig][expt] = p
 
-            make_figures(expt_profiles[fig])
+            make_figures(expt_profiles[fig], figconf)
     
 str2list = lambda  s : [ tok.strip() for tok in s.split(",")]
 
