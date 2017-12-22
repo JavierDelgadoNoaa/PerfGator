@@ -182,7 +182,6 @@ def read_tau_output(filename="profile.txt", node2roleDict=None,
                       includes number in ``subrsOfInterest'', if passed in.
     :param sortMetric: The metric to use when sorting subroutines to determine
                        which ones to include. Only used if numSubrs is passed in
-        #TODO? default to paramOfInterest if unspecified?
     :param rolesOfInterest: If set, skip any nodes whose node2roleDict value
         does not match any item in this list
     :return nct_list,subr2nct: 
@@ -583,8 +582,22 @@ def gather_nmmb_tau_stats(expt, figconf):
     param = figconf["param_to_plot"]
     subrs_of_interest = figconf["subroutines_of_interest"]
     num_subr = figconf["num_subroutines"]
-    sort_metric = figconf["sort_metric"]
-    descending=strtobool(figconf["sort_descending"])
+    try:
+        sort_metric = figconf["sort_metric"]
+    except NoOptionError:
+        log.warn("sort_metric unspecified in this section. Will default to "
+                 "param_to_plot = '{1}'".format(param))
+        sort_metric = param
+    try:
+        descending=strtobool(figconf["sort_descending"])
+    except NoOptionError:
+        descending = False
+        if sort_metric in ["inclusive_percent", "exclusive_percent", 
+                           "inclusive_time", "exclusive_time", "num_calls"]:
+           descending = True
+        log.warn("`descending' unspecified in config. Will set as {0}"
+                 .format(descending))
+    
     expt_config = os.getcwd() + "/" + expt + "/" + "configure_file_01"
     # Determine profile file path. TODO : Move this to subr...allow different file names
     prof_path = None
@@ -613,7 +626,8 @@ def gather_nmmb_tau_stats(expt, figconf):
     # all NCTs of current role into a list
     # TODO : Confirm keys only contain final subroutines
     
-    # Get the value of performing specified operation on subroutine
+    # Get the value of performing specified operation (i.e. reduction function)
+    # on subroutine.
     # Note that not each subroutine will necessarily be in the ``subr_list''
     # of each NCT, due to load imbalance. 
     for subr in subr2nct.keys():
@@ -636,8 +650,9 @@ def gather_nmmb_tau_stats(expt, figconf):
         subr2numCases[subr] = len(idc)
     
     # Due to load imbalance, the number of subroutines may exceed the number
-    # desired, so sort and purge again.
-    # TODO : Have the option of sorting by numCases - since the having a 
+    # desired (i.e. because different nodes may  have different sets of 
+    # hot spots), so sort and purge again.
+    # TODO? : Have the option of sorting by numCases - since the having a 
     #       subroutine as a hot spot on more nodes is indicative of it
     #       being important
     #import pdb ; pdb.set_trace()
@@ -645,7 +660,6 @@ def gather_nmmb_tau_stats(expt, figconf):
     requested = [f for f in subr2values.keys() if f in subrs_of_interest]
     num_additional_subrs = num_subr - len(requested) 
     if num_additional_subrs > 0:
-        #others = [f for f in subr2values.keys() if f not in subrs_of_interest]
         subYval = [(sub,val) for (sub,val) in subr2values.iteritems() \
                   if sub not in subrs_of_interest]
         topN = sorted(subYval, key=lambda sv: sv[1],
@@ -697,9 +711,6 @@ def main():
     global log, expts, param_of_interest
     # TODO : Filter out thread idc != 0
 
-    # NOTE: The numSubr passed to read_nmmb_tau_output() should be a bit higher
-    # than we actually want, since different nodes may have different hotspots
-    
     ##
     # Variables
     ##
@@ -726,7 +737,7 @@ def main():
                 expt_profiles[fig][expt] = {}
                 (roleId, op, param) = [ figconf[s] for s in \
                                         ["role_id", "operation", "param_to_plot"] ]
-                p, num_cases = gather_nmmb_tau_stats(expt, figconf) # TODO use num_caes in make_figure
+                p, num_cases = gather_nmmb_tau_stats(expt, figconf) # TODO use num_caes in make_figures : i.e. to show for how many cases a given subroutine is a hot spot
                 # Populate expt_profiles
                 '''
                 if not roleId in expt_profiles[fig][expt]: 

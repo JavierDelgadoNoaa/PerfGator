@@ -1,2 +1,2 @@
-# PerfGator - the Performance Investigator
+# PerfGator - the PERFormance InvestiGATOR
 
