@@ -79,13 +79,14 @@ class UnknownParameterException(Exception):
     def __init__(self, *args, **kwargs):
         Exception.__init__(self, *args, **kwargs)
 
-class NodeContextThreadItem(object):
+#class NodeContextThreadItem(object):
+class NCTCalltreeLeaf(object):
     """ 
-    Encapsulates statistics for a particular function for this node, context,
-    and thread (i.e. one line of Tau output)
+    Encapsulates statistics for a particular subroutine call tree for this node,
+    context, and thread (i.e. one line of Tau output)
     """
     def __init__(self, subr_name, exclusive_time, inclusive_time, inclusive_percent,
-                 num_calls, nct):
+                 num_calls, nct, parents):
         self.subr_name = subr_name
         self.exclusive_time = exclusive_time
         self.inclusive_time = inclusive_time
@@ -93,6 +94,9 @@ class NodeContextThreadItem(object):
         self.num_calls = num_calls 
         self.nct = nct
         self._exclusive_percent = None
+        # This is simply a list of the subroutines in the call stack, since 
+        # information about the call tree is not currently used
+        self.parents = parents
    
     @property 
     def exclusive_percent(self):
@@ -101,6 +105,8 @@ class NodeContextThreadItem(object):
             log.debug("jza Set exclusive percent for subr: {}".format(self.subr_name))
         return self._exclusive_percent
 
+    def __eq__(self, other):
+        
 def _default_log(log2stdout=logging.INFO, log2file=None, name='el_default'):
     global _logger
     if _logger is None:
@@ -585,7 +591,7 @@ def gather_nmmb_tau_stats(expt, figconf):
     num_subr = figconf["num_subroutines"]
     sort_metric = figconf["sort_metric"]
     descending=strtobool(figconf["sort_descending"])
-    expt_config = os.getcwd() + "/" + expt + "/" + "configure_file_01"
+    expt_config = os.path.join(figconf["tau_outs_topdir"], expt, "configure_file_01")
     # Determine profile file path. TODO : Move this to subr...allow different file names
     prof_path = None
     dirname = os.path.join(os.getcwd(), figconf["tau_outs_topdir"], expt)
